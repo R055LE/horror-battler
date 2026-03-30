@@ -356,6 +356,8 @@ func _on_fight() -> void:
 	for line in result["log"]:
 		print(line)
 
+	await _reveal_enemy_bench(enemy_lineup)
+
 	_enemy_row.visible = false
 	_bench_row.visible = false
 	await _animator.play(result["events"], result["player_initial"], result["enemy_initial"])
@@ -384,6 +386,17 @@ func _on_fight() -> void:
 			return
 		player_gold = GOLD_PER_ROUND
 
+	# Reset enemy slots back to ? for next round
+	for i in range(MAX_BENCH_SLOTS):
+		var ep: Panel = _enemy_slots[i]
+		ep.modulate = Color(1, 1, 1, 1)
+		var es := StyleBoxFlat.new()
+		es.bg_color = Color(0.25, 0.25, 0.25)
+		es.set_border_width_all(2)
+		es.border_color = Color(0.45, 0.45, 0.45)
+		ep.add_theme_stylebox_override("panel", es)
+		ep.get_node("Label").text = "?"
+
 	state = State.SHOP
 	_fight_btn.disabled = false
 	_generate_shop()
@@ -396,6 +409,36 @@ func _get_active() -> Array:
 		if u != null:
 			out.append(u)
 	return out
+
+
+func _reveal_enemy_bench(lineup: Array) -> void:
+	# Update all slots with real data while still transparent
+	for i in range(MAX_BENCH_SLOTS):
+		var p: Panel = _enemy_slots[i]
+		p.modulate = Color(1, 1, 1, 0)
+		var style := StyleBoxFlat.new()
+		style.set_border_width_all(2)
+		if i < lineup.size():
+			var u: Dictionary = lineup[i]
+			style.bg_color     = u.get("color", Color(0.4, 0.4, 0.4))
+			style.border_color = Color(0.7, 0.7, 0.7)
+			p.get_node("Label").text = "%s\n%dHP %dATK" % [u["name"], u["hp"], u["atk"]]
+		else:
+			style.bg_color     = Color(0.1, 0.1, 0.1)
+			style.border_color = Color(0.25, 0.25, 0.25)
+			p.get_node("Label").text = "—"
+		p.add_theme_stylebox_override("panel", style)
+
+	# Staggered flash-reveal left to right
+	for i in range(lineup.size()):
+		var p: Panel = _enemy_slots[i]
+		var tw := create_tween()
+		tw.tween_interval(i * 0.13)
+		tw.tween_property(p, "modulate", Color(2.5, 2.5, 2.5, 1.0), 0.07)
+		tw.tween_property(p, "modulate", Color(1.0, 1.0, 1.0, 1.0), 0.22)
+
+	# Wait for all flashes to complete + brief reading pause
+	await get_tree().create_timer(lineup.size() * 0.13 + 0.45).timeout
 
 
 # ── ROUND RESULT OVERLAY ──────────────────────────────────────────────────────
@@ -494,12 +537,23 @@ func _refresh_ui() -> void:
 		style.set_border_width_all(2)
 		if player_bench[i] != null:
 			var u: Dictionary = player_bench[i]
-			style.bg_color     = u.get("color", Color(0.4, 0.4, 0.4))
-			style.border_color = Color.WHITE if selected_bench_slot == i else Color(0.6, 0.6, 0.6)
-			var stars := "*".repeat(u.get("upgrade_level", 0))
+			var upgrade: int = u.get("upgrade_level", 0)
+			style.bg_color = u.get("color", Color(0.4, 0.4, 0.4)).lerp(Color.WHITE, upgrade * 0.07)
+			if selected_bench_slot == i:
+				style.border_color = Color.WHITE
+				style.set_border_width_all(3)
+			elif upgrade == 2:
+				style.border_color = Color(1.0, 0.78, 0.1)   # gold
+				style.set_border_width_all(4)
+			elif upgrade == 1:
+				style.border_color = Color(0.75, 0.75, 0.95)  # silver
+				style.set_border_width_all(3)
+			else:
+				style.border_color = Color(0.6, 0.6, 0.6)
+			var stars: String = "★".repeat(upgrade)
 			p.get_node("Label").text = "%s\n%dHP %dATK%s" % [
 				u["name"], u["hp"], u["atk"],
-				"\n" + stars if stars != "" else ""]
+				"  " + stars if stars != "" else ""]
 		else:
 			style.bg_color     = Color(0.12, 0.12, 0.12)
 			style.border_color = Color(0.35, 0.35, 0.35)
