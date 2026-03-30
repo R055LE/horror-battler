@@ -16,8 +16,10 @@ static func resolve(player_bench: Array, enemy_bench: Array) -> Dictionary:
 
 	_apply_pre_combat(pside, eside, events, log)
 	_apply_pre_combat(eside, pside, events, log)
+	Synergy.apply(pside, events, log)
+	Synergy.apply(eside, events, log)
 
-	# Snapshot post-pre-combat state for animator initial display
+	# Snapshot post-pre-combat, post-synergy state for animator
 	var player_initial: Array = _snapshot(pside)
 	var enemy_initial: Array  = _snapshot(eside)
 
@@ -52,12 +54,60 @@ static func resolve(player_bench: Array, enemy_bench: Array) -> Dictionary:
 				"damage": dmg,  "target_hp_after": target["hp"]
 			})
 
+			# Parasite on-hit steal (only if target survived the main hit)
+			if target["hp"] > 0:
+				if attacker.get("parasite_steal_atk", false) and target["atk"] > 0:
+					target["atk"] -= 1
+					attacker["atk"] += 1
+					log.append("  %s steals 1 ATK (→%d)" % [attacker["name"], attacker["atk"]])
+					events.append({"type": "stat_change", "side": target["side"], "slot": target["slot"],
+						"stat": "atk", "new_val": target["atk"]})
+					events.append({"type": "stat_change", "side": attacker["side"], "slot": attacker["slot"],
+						"stat": "atk", "new_val": attacker["atk"], "delta": 1})
+				elif attacker.get("parasite_steal_hp", false):
+					target["hp"] -= 1
+					attacker["hp"] += 1
+					log.append("  %s steals 1 HP (→%d)" % [attacker["name"], attacker["hp"]])
+					events.append({"type": "stat_change", "side": attacker["side"], "slot": attacker["slot"],
+						"stat": "hp", "new_val": attacker["hp"], "delta": 1})
+
 			if target["hp"] <= 0:
 				log.append("  %s dies!" % target["name"])
 				events.append({"type": "death", "side": target["side"], "slot": target["slot"]})
+				var dead_side: Array = pside if target["side"] == "player" else eside
 				_on_death(target, attacker, targets, events, log)
 				_on_kill(attacker, events, log)
-				_on_ally_death(target, own_side, events, log)
+				_on_ally_death(target, dead_side, events, log)
+
+			# Flesh regen: attacker heals 1 HP after each attack
+			if attacker.get("flesh_regen", false) and attacker["hp"] > 0:
+				attacker["hp"] += 1
+				log.append("  %s flesh regen (HP→%d)" % [attacker["name"], attacker["hp"]])
+				events.append({"type": "stat_change", "side": attacker["side"], "slot": attacker["slot"],
+					"stat": "hp", "new_val": attacker["hp"], "delta": 1})
+
+			# Swarm double: second attack at half ATK
+			if attacker.get("swarm_double", false) and attacker["hp"] > 0:
+				var second_target: Variant = _pick_target(attacker, targets)
+				if second_target != null and second_target["hp"] > 0:
+					var half_atk: int = max(1, attacker["atk"] / 2)
+					var dmg2: int = max(1, half_atk - second_target.get("damage_reduction", 0))
+					second_target["hp"] -= dmg2
+					log.append("  %s swarm double -> %s for %d (HP→%d)" % [
+						attacker["name"], second_target["name"], dmg2, second_target["hp"]])
+					events.append({
+						"type": "attack",
+						"attacker_side": attacker["side"], "attacker_slot": attacker["slot"],
+						"target_side": second_target["side"], "target_slot": second_target["slot"],
+						"damage": dmg2, "target_hp_after": second_target["hp"]
+					})
+					if second_target["hp"] <= 0:
+						log.append("  %s dies!" % second_target["name"])
+						events.append({"type": "death", "side": second_target["side"], "slot": second_target["slot"]})
+						var dead_side2: Array = pside if second_target["side"] == "player" else eside
+						_on_death(second_target, attacker, targets, events, log)
+						_on_kill(attacker, events, log)
+						_on_ally_death(second_target, dead_side2, events, log)
 
 			if _living(pside).is_empty() or _living(eside).is_empty():
 				break
@@ -112,14 +162,25 @@ static func _bench_summary(bench: Array) -> String:
 
 
 static func _get_turn_order(pliving: Array, eliving: Array) -> Array:
+	var p_ord: Array = _signal_first_order(pliving)
+	var e_ord: Array = _signal_first_order(eliving)
 	var order: Array = []
-	var max_len: int = max(pliving.size(), eliving.size())
+	var max_len: int = max(p_ord.size(), e_ord.size())
 	for i in range(max_len):
-		if i < pliving.size():
-			order.append({"unit": pliving[i], "targets": eliving, "own_side": pliving})
-		if i < eliving.size():
-			order.append({"unit": eliving[i], "targets": pliving, "own_side": eliving})
+		if i < p_ord.size():
+			order.append({"unit": p_ord[i], "targets": e_ord, "own_side": p_ord})
+		if i < e_ord.size():
+			order.append({"unit": e_ord[i], "targets": p_ord, "own_side": e_ord})
 	return order
+
+
+static func _signal_first_order(side: Array) -> Array:
+	for u in side:
+		if u.get("ability", "") == "signal_first":
+			var sig: Array   = side.filter(func(x): return "signal" in x.get("tags", []))
+			var other: Array = side.filter(func(x): return not "signal" in x.get("tags", []))
+			return sig + other
+	return side
 
 
 static func _pick_target(attacker: Dictionary, targets: Array) -> Variant:
@@ -132,6 +193,10 @@ static func _pick_target(attacker: Dictionary, targets: Array) -> Variant:
 			if t["hp"] < weakest["hp"]:
 				weakest = t
 		return weakest
+	# Signal 3: skip protected units if any unprotected targets exist
+	var unprotected: Array = living.filter(func(u): return not u.get("signal_protected", false))
+	if not unprotected.is_empty():
+		return unprotected[0]
 	return living[0]
 
 
@@ -204,3 +269,16 @@ static func _on_ally_death(dead: Dictionary, own_side: Array, events: Array, log
 					log.append("  %s gains +2 ATK (now %d)" % [u["name"], u["atk"]])
 					events.append({"type": "stat_change", "side": u["side"], "slot": u["slot"],
 						"stat": "atk", "new_val": u["atk"], "delta": 2})
+	# Omen 3: all surviving allies gain +1 ATK on any ally death
+	var omen3_active := false
+	for u in own_side:
+		if u["hp"] > 0 and u.get("omen_3", false):
+			omen3_active = true
+			break
+	if omen3_active:
+		for u in own_side:
+			if u["hp"] > 0:
+				u["atk"] += 1
+				log.append("  %s Omen 3 +1 ATK (→%d)" % [u["name"], u["atk"]])
+				events.append({"type": "stat_change", "side": u["side"], "slot": u["slot"],
+					"stat": "atk", "new_val": u["atk"], "delta": 1})
