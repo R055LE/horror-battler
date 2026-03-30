@@ -15,6 +15,8 @@ var current_round: int = 1
 var player_health: int = STARTING_HEALTH
 var player_gold: int   = STARTING_GOLD
 var win_streak: int    = 0
+var total_kills: int   = 0
+var max_win_streak: int = 0
 
 var player_bench: Array   = []
 var shop_offerings: Array = []
@@ -41,6 +43,15 @@ var _round_overlay_title: Label
 var _round_overlay_sub:   Label
 var _result_panel:        Panel
 var _result_label:        Label
+var _transition_rect:     ColorRect
+
+# Tooltip
+var _tooltip:          Panel
+var _tooltip_name_lbl: Label
+var _tooltip_tier_lbl: Label
+var _tooltip_tags_row: HBoxContainer
+var _tooltip_stats_lbl: Label
+var _tooltip_ability_lbl: Label
 
 var _animator: CombatAnimator
 
@@ -124,6 +135,8 @@ func _build_ui() -> void:
 	for i in range(MAX_BENCH_SLOTS):
 		var s := _unit_panel("empty", Color(0.15, 0.15, 0.15))
 		s.gui_input.connect(_on_bench_input.bind(i))
+		s.mouse_entered.connect(_on_bench_hover.bind(i))
+		s.mouse_exited.connect(_hide_tooltip)
 		_bench_slots.append(s)
 		_bench_row.add_child(s)
 
@@ -141,6 +154,8 @@ func _build_ui() -> void:
 	for i in range(SHOP_SIZE):
 		var s := _unit_panel("...", Color(0.12, 0.12, 0.28))
 		s.gui_input.connect(_on_shop_input.bind(i))
+		s.mouse_entered.connect(_on_shop_hover.bind(i))
+		s.mouse_exited.connect(_hide_tooltip)
 		_shop_panels.append(s)
 		shop_row.add_child(s)
 
@@ -197,21 +212,35 @@ func _build_ui() -> void:
 	# ── Game-over result panel (hidden) ──
 	_result_panel = Panel.new()
 	_result_panel.set_anchors_preset(Control.PRESET_CENTER)
-	_result_panel.custom_minimum_size = Vector2(360, 180)
+	_result_panel.custom_minimum_size = Vector2(380, 220)
 	_result_panel.visible = false
 	_result_panel.z_index = 30
 	canvas.add_child(_result_panel)
 	var rv := VBoxContainer.new()
 	rv.set_anchors_preset(Control.PRESET_FULL_RECT)
 	rv.alignment = BoxContainer.ALIGNMENT_CENTER
+	rv.add_theme_constant_override("separation", 8)
 	_result_panel.add_child(rv)
 	_result_label = _label("")
-	_result_label.add_theme_font_size_override("font_size", 22)
+	_result_label.add_theme_font_size_override("font_size", 24)
 	rv.add_child(_result_label)
 	var rb := Button.new()
 	rb.text = "RESTART"
 	rb.pressed.connect(_on_restart)
 	rv.add_child(rb)
+
+	# ── Transition flash (full-screen dark rect) ──
+	_transition_rect = ColorRect.new()
+	_transition_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_transition_rect.color   = Color(0, 0, 0)
+	_transition_rect.modulate = Color(1, 1, 1, 0)
+	_transition_rect.visible  = false
+	_transition_rect.z_index  = 50
+	_transition_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	canvas.add_child(_transition_rect)
+
+	# ── Tooltip (hidden until hover) ──
+	_build_tooltip(canvas)
 
 
 func _label(text: String) -> Label:
@@ -220,6 +249,129 @@ func _label(text: String) -> Label:
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return l
+
+
+func _build_tooltip(canvas: CanvasLayer) -> void:
+	_tooltip = Panel.new()
+	_tooltip.custom_minimum_size = Vector2(210, 0)
+	_tooltip.visible  = false
+	_tooltip.z_index  = 60
+	_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ts := StyleBoxFlat.new()
+	ts.bg_color = Color(0.05, 0.05, 0.08, 0.97)
+	ts.set_border_width_all(1)
+	ts.border_color = Color(0.5, 0.5, 0.6)
+	ts.set_corner_radius_all(5)
+	ts.set_content_margin_all(8)
+	_tooltip.add_theme_stylebox_override("panel", ts)
+	canvas.add_child(_tooltip)
+
+	var vbox := VBoxContainer.new()
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vbox.add_theme_constant_override("separation", 4)
+	_tooltip.add_child(vbox)
+
+	_tooltip_name_lbl = Label.new()
+	_tooltip_name_lbl.add_theme_font_size_override("font_size", 14)
+	vbox.add_child(_tooltip_name_lbl)
+
+	_tooltip_tier_lbl = Label.new()
+	_tooltip_tier_lbl.add_theme_font_size_override("font_size", 11)
+	_tooltip_tier_lbl.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	vbox.add_child(_tooltip_tier_lbl)
+
+	vbox.add_child(HSeparator.new())
+
+	_tooltip_tags_row = HBoxContainer.new()
+	_tooltip_tags_row.add_theme_constant_override("separation", 4)
+	vbox.add_child(_tooltip_tags_row)
+
+	_tooltip_stats_lbl = Label.new()
+	_tooltip_stats_lbl.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(_tooltip_stats_lbl)
+
+	_tooltip_ability_lbl = Label.new()
+	_tooltip_ability_lbl.add_theme_font_size_override("font_size", 11)
+	_tooltip_ability_lbl.add_theme_color_override("font_color", Color(0.85, 0.85, 0.65))
+	_tooltip_ability_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tooltip_ability_lbl.custom_minimum_size = Vector2(194, 0)
+	vbox.add_child(_tooltip_ability_lbl)
+
+
+func _show_tooltip(unit: Dictionary, anchor: Control) -> void:
+	# Name + upgrade stars
+	var upgrade: int = unit.get("upgrade_level", 0)
+	_tooltip_name_lbl.text = unit["name"] + ("  " + "★".repeat(upgrade) if upgrade > 0 else "")
+
+	# Tier + cost
+	var tier_names := ["", "Common", "Uncommon", "Rare"]
+	_tooltip_tier_lbl.text = "Tier %d — %s — %dg" % [
+		unit["tier"], tier_names[unit["tier"]], unit["cost"]]
+
+	# Tag chips
+	for c in _tooltip_tags_row.get_children():
+		c.queue_free()
+	for tag in unit.get("tags", []):
+		var chip := Label.new()
+		chip.text = tag.capitalize()
+		chip.add_theme_font_size_override("font_size", 10)
+		chip.add_theme_color_override("font_color", UnitData.TAG_COLORS.get(tag, Color.WHITE))
+		_tooltip_tags_row.add_child(chip)
+		if _tooltip_tags_row.get_child_count() < unit["tags"].size():
+			var sep := Label.new()
+			sep.text = "·"
+			sep.add_theme_color_override("font_color", Color(0.4, 0.4, 0.4))
+			_tooltip_tags_row.add_child(sep)
+
+	# Stats
+	_tooltip_stats_lbl.text = "%d HP   /   %d ATK" % [unit["hp"], unit["atk"]]
+
+	# Ability
+	var ability_key: String = unit.get("ability", "")
+	var desc: String = UnitData.ABILITY_DESCS.get(ability_key, "")
+	_tooltip_ability_lbl.text = desc
+	_tooltip_ability_lbl.visible = desc != ""
+
+	_tooltip.visible = true
+	_tooltip.reset_size()
+
+	# Position above the anchor, clamped to viewport
+	var vp_size: Vector2 = get_viewport().get_visible_rect().size
+	var tip_size: Vector2 = _tooltip.get_combined_minimum_size()
+	var apos: Vector2    = anchor.global_position
+	var tx: float = clamp(apos.x, 4.0, vp_size.x - tip_size.x - 4.0)
+	var ty: float = apos.y - tip_size.y - 8.0
+	if ty < 4.0:
+		ty = apos.y + anchor.size.y + 8.0  # flip below if no room above
+	_tooltip.position = Vector2(tx, ty)
+
+
+func _hide_tooltip() -> void:
+	_tooltip.visible = false
+
+
+func _on_bench_hover(idx: int) -> void:
+	if player_bench[idx] == null:
+		return
+	_show_tooltip(player_bench[idx], _bench_slots[idx])
+
+
+func _on_shop_hover(idx: int) -> void:
+	if idx >= shop_offerings.size() or shop_offerings[idx] == "":
+		return
+	_show_tooltip(UnitData.UNITS[shop_offerings[idx]], _shop_panels[idx])
+
+
+# ── TRANSITION ────────────────────────────────────────────────────────────────
+
+func _combat_flash() -> void:
+	_transition_rect.visible   = true
+	_transition_rect.modulate.a = 0.0
+	var tw := create_tween()
+	tw.tween_property(_transition_rect, "modulate:a", 0.82, 0.2)
+	tw.tween_property(_transition_rect, "modulate:a", 0.0,  0.28)
+	await tw.finished
+	_transition_rect.visible = false
 
 
 func _unit_panel(display: String, color: Color) -> Panel:
@@ -356,6 +508,11 @@ func _on_fight() -> void:
 	for line in result["log"]:
 		print(line)
 
+	# Track kills: enemies at start minus survivors
+	total_kills += enemy_lineup.size() - result["enemy_survivors"]
+
+	_hide_tooltip()
+	await _combat_flash()
 	await _reveal_enemy_bench(enemy_lineup)
 
 	_enemy_row.visible = false
@@ -366,6 +523,7 @@ func _on_fight() -> void:
 
 	if result["player_wins"]:
 		win_streak += 1
+		max_win_streak = max(max_win_streak, win_streak)
 		var bonus: int = min(win_streak, 3)
 		await _show_round_result(true, 0)
 		current_round += 1
@@ -508,8 +666,12 @@ func _flash_gold(delta: int) -> void:
 func _end_game(won: bool) -> void:
 	state = State.RESULT
 	_result_panel.visible = true
-	_result_label.text = "YOU WIN!\nAll 10 rounds survived." if won \
-		else "GAME OVER\nYour bench was destroyed."
+	var rounds_survived: int = current_round - 1
+	var header: String = "YOU WIN!" if won else "GAME OVER"
+	var sub: String    = "All 10 rounds survived." if won \
+		else "Fell on round %d / 10." % current_round
+	_result_label.text = "%s\n%s\n\nEnemies defeated:  %d\nBest win streak:   %d\nRounds survived:   %d" % [
+		header, sub, total_kills, max_win_streak, rounds_survived]
 
 
 func _on_restart() -> void:

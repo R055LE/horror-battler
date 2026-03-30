@@ -53,6 +53,17 @@ const UNITS: Dictionary = {
 	},
 }
 
+const ABILITY_DESCS: Dictionary = {
+	"on_death_damage":    "On death: deal 1 damage to the attacker",
+	"steal_atk":          "Combat start: steal 1 ATK from the front enemy",
+	"signal_buff":        "Combat start: all other Signal allies gain +1 ATK",
+	"on_ally_death_atk":  "On ally death: gain +2 ATK",
+	"copy_behind_atk":    "Combat start: copy the ATK of the unit behind",
+	"attack_weakest":     "Always targets the lowest-HP enemy",
+	"on_kill_hp":         "On kill: permanently gain +1 HP",
+	"signal_first":       "Your Signal units attack before all others",
+}
+
 const TAG_COLORS: Dictionary = {
 	"flesh": Color(0.8, 0.2, 0.2),
 	"swarm": Color(0.9, 0.8, 0.1),
