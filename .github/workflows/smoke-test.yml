@@ -1,0 +1,32 @@
+name: Smoke Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke-test:
+    name: Godot headless smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.3.0
+          use-dotnet: false
+
+      - name: Import project
+        run: godot --headless --import
+        # Registers class_name declarations and validates scene/resource references.
+        # Exits non-zero if any resource is broken or a script fails to parse.
+
+      - name: Run smoke test
+        run: godot --headless --quit-after 5
+        # Boots the main scene, runs _ready() on all nodes, and exits.
+        # Catches runtime errors that don't surface at import time.
+        # 5 seconds is enough for the game manager to initialize; adjust if startup gets heavier.
