@@ -1,4 +1,4 @@
-# horror-battler
+# Horror Battler
 
 A dark auto-battler demo alpha. Cursed creatures. Grotesque synergies. Watch them murder each other.
 
