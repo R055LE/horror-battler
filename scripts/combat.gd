@@ -74,8 +74,9 @@ static func resolve(player_bench: Array, enemy_bench: Array) -> Dictionary:
 			if target["hp"] <= 0:
 				log.append("  %s dies!" % target["name"])
 				events.append({"type": "death", "side": target["side"], "slot": target["slot"]})
-				var dead_side: Array = pside if target["side"] == "player" else eside
-				_on_death(target, attacker, targets, events, log)
+				var dead_side: Array    = pside if target["side"] == "player" else eside
+				var attacker_side: Array = pside if attacker["side"] == "player" else eside
+				_on_death(target, attacker, targets, events, log, attacker_side)
 				_on_kill(attacker, events, log)
 				_on_ally_death(target, dead_side, events, log)
 
@@ -104,8 +105,9 @@ static func resolve(player_bench: Array, enemy_bench: Array) -> Dictionary:
 					if second_target["hp"] <= 0:
 						log.append("  %s dies!" % second_target["name"])
 						events.append({"type": "death", "side": second_target["side"], "slot": second_target["slot"]})
-						var dead_side2: Array = pside if second_target["side"] == "player" else eside
-						_on_death(second_target, attacker, targets, events, log)
+						var dead_side2: Array    = pside if second_target["side"] == "player" else eside
+						var attacker_side2: Array = pside if attacker["side"] == "player" else eside
+						_on_death(second_target, attacker, targets, events, log, attacker_side2)
 						_on_kill(attacker, events, log)
 						_on_ally_death(second_target, dead_side2, events, log)
 
@@ -234,7 +236,7 @@ static func _apply_pre_combat(side: Array, other: Array, events: Array, log: Arr
 
 
 static func _on_death(_unit: Dictionary, _killer: Dictionary, _targets: Array,
-		_events: Array, log: Array) -> void:
+		_events: Array, log: Array, _killer_side: Array = []) -> void:
 	match _unit.get("ability", ""):
 		"on_death_damage":
 			var dmg := 1
@@ -249,6 +251,7 @@ static func _on_death(_unit: Dictionary, _killer: Dictionary, _targets: Array,
 			if _killer["hp"] <= 0:
 				log.append("  %s dies from retaliation!" % _killer["name"])
 				_events.append({"type": "death", "side": _killer["side"], "slot": _killer["slot"]})
+				_on_ally_death(_killer, _killer_side, _events, log)
 
 
 static func _on_kill(killer: Dictionary, events: Array, log: Array) -> void:

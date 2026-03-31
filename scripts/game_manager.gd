@@ -305,8 +305,8 @@ func _show_tooltip(unit: Dictionary, anchor: Control) -> void:
 
 	# Tier + cost
 	var tier_names := ["", "Common", "Uncommon", "Rare"]
-	_tooltip_tier_lbl.text = "Tier %d — %s — %dg" % [
-		unit["tier"], tier_names[unit["tier"]], unit["cost"]]
+	var tier: int = clampi(unit.get("tier", 1), 0, tier_names.size() - 1)
+	_tooltip_tier_lbl.text = "Tier %d — %s — %dg" % [tier, tier_names[tier], unit["cost"]]
 
 	# Tag chips
 	for c in _tooltip_tags_row.get_children():
@@ -420,20 +420,19 @@ func _buy(shop_idx: int) -> void:
 	if player_gold < cost:
 		_log("[color=red]Not enough gold![/color]")
 		return
-	var empty := _first_empty()
-	if empty == -1:
+	var existing: int = _find_on_bench(key)
+	if existing == -1 and _first_empty() == -1:
 		_log("[color=red]Bench is full![/color]")
 		return
 	player_gold -= cost
-	var unit: Dictionary = UnitData.UNITS[key].duplicate(true)
-	unit["unit_key"]      = key
-	unit["upgrade_level"] = 0
-	var existing := _find_on_bench(key)
+	shop_offerings[shop_idx] = ""
 	if existing >= 0:
 		_merge(existing)
 	else:
-		player_bench[empty] = unit
-	shop_offerings[shop_idx] = ""
+		var unit: Dictionary = UnitData.UNITS[key].duplicate(true)
+		unit["unit_key"]      = key
+		unit["upgrade_level"] = 0
+		player_bench[_first_empty()] = unit
 	_refresh_ui()
 
 
