@@ -2,10 +2,11 @@
 
 A dark auto-battler demo alpha. Cursed creatures. Grotesque synergies. Watch them murder each other.
 
+**▶ [Play in your browser](https://r055le.github.io/horror-battler/)** — no install, no clone, nothing to download.
+
 ---
 
-![screenshot](screenshot.png)
-> *(screenshot coming)*
+<!-- TODO: add screenshot.png — drop a PNG of combat mid-swing in the repo root. -->
 
 ---
 
