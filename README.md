@@ -6,7 +6,7 @@ A dark auto-battler demo alpha. Cursed creatures. Grotesque synergies. Watch the
 
 ---
 
-<!-- TODO: add screenshot.png — drop a PNG of combat mid-swing in the repo root. -->
+![screenshot](screenshot.png)
 
 ---
 
